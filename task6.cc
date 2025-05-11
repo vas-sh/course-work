@@ -7,6 +7,10 @@
 #include <limits>
 #include <sstream>
 #include <chrono>
+#include <atomic> 
+#include <mutex>
+#include <condition_variable>
+#include <thread>
 
 using namespace std;
 
@@ -61,12 +65,11 @@ class Board {
 	    vector<Sector> Sectors;
         map<pair<int, int>, int> Indexes;
 
-
         bool isCorrect();
         void run();
         void setNumbers();
         Board copy() const;
-        bool fill(vector<Cell> filledCells, bool checkSectors);
+        bool fill(atomic<bool>& canselFlag, const vector<Cell>& filledCells, bool checkSectors, int lvl);      
         bool add(int i);
         bool canAdd(Cell cell);
         bool canAddToSector(const Sector& sector, const Cell& cell) const;
@@ -78,11 +81,12 @@ class Board {
         vector<Cell> getNexts(vector<Cell>& white, const Cell& start);
         bool fullSectors() const;
         bool fullSector(const Sector& sector) const;
-        int checkHorizontal() const;
+        int checkHorizontalWhite() const;
         vector<vector<Cell>> getRows(int rowIndx) const;
         int getSectionIndx(int row, int col) const;
         int checkVerticalWhite() const;
         vector<Cell> getCol(int colIndx) const;
+        vector<Cell> getPossibleSectors();
         vector<Cell> getPossibleCells(int row, int col);
         string display() const;
         bool valid() const;
@@ -274,40 +278,102 @@ void Board::setNumbers() {
 	}
 }
 
-vector<vector<Cell>> Combs(const vector<Sector>& sectors) {
-    vector<vector<vector<Cell>>> groups;
-    for (const auto& sector : sectors) {
-        if (sector.Number != nullptr && *sector.Number > 0) {
-            groups.push_back(sector.Combs());
-        }
-    }
-
-    vector<vector<Cell>> results;
-
-    function<void(int, vector<Cell>)> backtrack;
-    backtrack = [&](int index, vector<Cell> path) {
-        if (static_cast<size_t>(index) == groups.size()) {
-            if (validComb(path)) {
-                results.push_back(path);
+static thread Combs(atomic<bool>& cancel, const vector<Sector>& sectors, const vector<Cell> cells, function<void(const vector<Cell>)> resultHandler) {
+    thread generator_thread([&cancel, sectors, resultHandler]() {
+        try {
+            vector<vector<vector<Cell>>> groups;
+            for (size_t i = 0; i < sectors.size(); ++i) {
+                 if (cancel.load()) return; 
+                if (sectors[i].Number != nullptr && *sectors[i].Number > 0) {
+                    groups.push_back(sectors[i].Combs());
+                }
             }
-            return;
-        }
 
-        for (const auto& option : groups[index]) {
-            vector<Cell> next_path = path;
-            next_path.insert(next_path.end(), option.begin(), option.end());
-            backtrack(index + 1, next_path);
+            sort(groups.begin(), groups.end(), [](const vector<vector<Cell>>& a, const vector<vector<Cell>>& b) {
+                return a.size() < b.size();
+            });
+
+            long long m = 0;
+            size_t limit_idx = groups.size();
+            for (size_t i = 0; i < groups.size(); ++i) {
+                 if (cancel.load()) return;
+                if (groups[i].empty() && (sectors[i].Number && *sectors[i].Number > 0)) {
+                    
+                     return; 
+                }
+                if (m == 0) {
+                    if (!groups[i].empty()) {
+                       m = groups[i].size();
+                    }
+                    continue;
+                }
+                if (groups[i].empty()) continue; 
+
+                long long current_size = groups[i].size();
+                if (current_size > 0 && m > 100'000'000LL / current_size) {
+                    limit_idx = i;
+                    break;
+                }
+                m *= current_size;
+                if (m > 100'000'000LL) {
+                    limit_idx = i;
+                    break;
+                }
+            }
+            if (limit_idx < groups.size()) {
+                groups.resize(limit_idx);
+            }
+
+
+            function<void(int, vector<Cell>)> backtrack;
+            backtrack = [&](int index, vector<Cell>path) {
+                if (cancel.load()) return; 
+
+                if (index == static_cast<int>(groups.size())) {
+                    if (validComb(path)) {
+                      
+                        resultHandler(path);
+                        if (cancel.load()) return;
+                    }
+                    return;
+                }
+
+                if (groups[index].empty()) {
+                     backtrack(index + 1, path);
+                     return;
+                }
+
+
+                for (const auto& option : groups[index]) {
+                    if (cancel.load()) return; 
+
+                    vector<Cell> next_path = path;
+                    next_path.insert(next_path.end(), option.begin(), option.end());
+
+                    if (validComb(next_path)) {
+                        backtrack(index + 1, next_path);
+                        if (cancel.load()) return;
+                    }
+                }
+            };
+
+            backtrack(0, vector<Cell>{});
+
+        } catch (const exception& e) {
+            cerr << "Exception in Combs generator thread: " << e.what() << endl;
+        } catch (...) {
+            cerr << "Unknown exception in Combs generator thread." << endl;
         }
-    };
-    backtrack(0, {});
-    return results;
+    }); 
+
+    return generator_thread;
 }
 
 bool Board::valid() const {
 	if (!fullSectors()) {
 		return false;
 	}
-	if (checkHorizontal() > -1) {
+	if (checkHorizontalWhite() > -1) {
 		return false;
 	}
 	if (checkVerticalWhite() > -1) {
@@ -317,15 +383,48 @@ bool Board::valid() const {
 }
  
 void Board::run() {
-    vector<vector<Cell>> all_combs = Combs(Sectors);
-    for (const auto& comb : all_combs) {
-        Board board_copy = copy();
-        bool is_valid_solution = board_copy.fill(comb, true);
+    int workers = 0;
+    atomic<bool> solutionFound{false};
+    mutex resultMutex;
+    condition_variable resultCV;
+    vector<thread> workerThreads;
+    mutex workerMutex;
 
-        if (is_valid_solution) {
-            cout << board_copy.display() << endl;
-            break; 
+    auto resultHandler = [&](const vector<Cell>& comb) {
+        if (solutionFound.load()) {
+            return;
         }
+        workers++;
+        Board board_copy = copy();
+        thread worker([this, board_copy, comb, &solutionFound, &resultMutex, &resultCV, workers ]() mutable {
+            vector<Cell> CombVec = {comb};
+           
+                bool validSolution = board_copy.fill(solutionFound, CombVec, true, 0);
+                if (solutionFound.load()) {
+                    return;
+                }
+                if (validSolution) {
+                    if (board_copy.valid()) {
+                        lock_guard<mutex> lock(resultMutex);
+                        if (!solutionFound.load()) {
+                            cout << "Solution found by worker: " << workers << endl;
+                            cout << board_copy.display();
+                            solutionFound.store(true); 
+                            resultCV.notify_all();
+                        }
+                    }
+                }
+           
+        });
+        worker.detach();
+    };
+    thread generator = Combs(solutionFound, Sectors, Cells, resultHandler);
+    {
+        unique_lock<mutex> lock(resultMutex);
+        resultCV.wait(lock, [&]{ return solutionFound.load(); });
+    }
+    if (generator.joinable()) {
+        generator.join();
     }
 }
 
@@ -488,12 +587,12 @@ vector<Cell> Board::getNexts(vector<Cell>& white, const Cell& start) {
 }
 
 bool Board::fullSectors() const {
-	for (const auto& sector : Sectors) {
-		if (!fullSector(sector)) {
-			return false;
-		}
-	}
-	return true;
+	for (size_t i = 0; i < Sectors.size(); ++i) {
+        if (!fullSector(Sectors[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool Board::fullSector(const Sector& sector) const {
@@ -550,7 +649,7 @@ vector<Cell> Board::getCol(int colIndx) const {
 }
 
 
-int Board::checkHorizontal() const {
+int Board::checkHorizontalWhite() const {
     vector<Cell> whiteCells = white();
     Shape shape = getShape(whiteCells);
 
@@ -626,24 +725,47 @@ int Board::checkVerticalWhite() const {
 	return -1;
 }
 
-vector<Cell> Board::getPossibleCells(int row, int col) {
-	vector<Cell> cells;
-	for (size_t i = 0; i < Cells.size(); ++i) {
-		if (Cells[i].filled) {
+vector<Cell> Board::getPossibleSectors() {
+	vector<Cell> res;
+	for (size_t i = 0; i < Sectors.size(); ++i) {
+		if (fullSector(Sectors[i])) {
 			continue;
 		}
-		if (row > -1 && Cells[i].i != row) {
-			continue;
-		}
-		if (col > -1 && Cells[i].j != col) {
-			continue;
-		}
-		cells.push_back(Cells[i]);
-	}
-	return cells;
+		for (size_t j = 0; j < Sectors.size(); ++j) {
+            const Cell& sectorCell = Sectors[i].Cells[j];
+            if (!canAddToSector(Sectors[i], sectorCell)) {
+                continue;
+            }
+            Cell* c = findCell(sectorCell.i, sectorCell.j);
+            if (c != nullptr && !c->filled) {
+                res.push_back(*c);
+            }
+        }
+        return res;
+    }
+    return res;
 }
 
-bool Board::fill(vector<Cell> filledCells, bool checkSectors) {
+vector<Cell> Board::getPossibleCells(int row, int col) {
+    vector<Cell> cells;
+    cells.reserve(Cells.size());
+    for (size_t i = 0; i < Cells.size(); ++i) {
+        if (Cells[i].filled) {
+            continue;
+        }
+        if (row > -1 && Cells[i].i != row) {
+            continue;
+        }
+        if (col > -1 && Cells[i].j != col) {
+            continue;
+        }
+        cells.push_back(Cells[i]);
+    }
+    return cells;
+}
+
+bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool checkSectors, int lvl) {
+    if (cancelFlag.load()) return false;
     cleanFilled();
 
     for (const auto& cellToFill : filledCells) {
@@ -657,31 +779,45 @@ bool Board::fill(vector<Cell> filledCells, bool checkSectors) {
             return false;
         }
     }
-    if (checkSectors) {
-        if (!fullSectors()) {
+    vector<Cell> posibles = getPossibleSectors();
+    if (posibles.empty()) {
+        if (checkSectors) {
+            checkSectors = false;
+            if (!fullSectors()) {
+                return false;
+            }
+        }
+        int problRow = checkHorizontalWhite();
+        if (problRow > -1) {
+            posibles = getPossibleCells(problRow, -1);
+        } else {
+            int problCol = checkVerticalWhite();
+            if (problCol > -1) {
+                posibles = getPossibleCells(-1, problCol);
+            } else {
+                return true;
+            }
+        }
+    
+        if (posibles.empty() && (problRow > -1 || checkVerticalWhite() > -1)) {
             return false;
         }
     }
-    vector<Cell> posibles;
-    int problRow = checkHorizontal();
-    if (problRow > -1) {
-        posibles = getPossibleCells(problRow, -1);
-    } else {
-        int problCol = checkVerticalWhite();
-        if (problCol > -1) {
-		    posibles = getPossibleCells(-1, problCol);
-        } else {
-		    return true;
+    vector<Cell> children = filledCells;
+    children.emplace_back();
+
+    bool solutionFoundInBranch = false;
+    for (size_t i = 0; i < posibles.size(); ++i) {
+        if (cancelFlag.load()) {
+            return false;
+        }
+        children.back() = posibles[i];
+        if (fill(cancelFlag, children, checkSectors, lvl +1)) {
+            solutionFoundInBranch = true;
+            break;
         }
     }
-    for (const auto& possible_cell : posibles) {
-        vector<Cell> nextFilled = filledCells;
-        nextFilled.push_back(possible_cell);
-		if (fill(nextFilled, false)) {
-			return true;
-		}
-	}
-	return false;
+   return solutionFoundInBranch;
 }
 
 Board testCase1 = {
@@ -820,7 +956,6 @@ Board testCase1 = {
     }
 };
 
-
 Board testCase2 = {
 	{
 		{0, 0}, {0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}, {0, 8}, {0, 9},
@@ -955,7 +1090,6 @@ Board testCase2 = {
 		},
 	},
 };
-
 
 Board testCase3 = {
 	{
@@ -1098,6 +1232,7 @@ Board testCase3 = {
 			},
 		},
 };
+
 Board testCase4 = {
 	{
 		{0, 0}, {0, 1}, {0, 2}, {0, 7}, {0, 8}, {0, 9},
@@ -1322,6 +1457,7 @@ int main() {
             cout << "Board structure is incorrect" << endl;
             return 1;
         }
+        this_thread::sleep_for(chrono::seconds(5));
         auto start = chrono::high_resolution_clock::now();
 
         boards[i].run();
