@@ -56,14 +56,53 @@ struct Cell {
 struct Sector {
 	vector<Cell> Cells;
 	shared_ptr<int> Number = nullptr;
-    vector<vector<Cell>> Combs() const;
+
+	bool Contains(const Cell& cell) const {
+		if (Number == nullptr) {
+			return false;
+		}
+		for (size_t i = 0; i < Cells.size(); ++i) {
+			if (Cells[i].Equal(cell)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+    vector<vector<Cell>> Combs() const {
+        vector<vector<Cell>> res;
+        if (Number == nullptr || *Number == 0) {
+            return res;
+        }
+
+        std::function<void(int, vector<Cell>)> backtrack;
+        backtrack = [&](int start, vector<Cell> path) {
+            if (path.size() == static_cast<size_t>(*Number)) {
+                vector<Cell> comb = path; 
+                extern bool validComb(const vector<Cell>& comb);
+                if (validComb(comb)) {
+                    res.push_back(comb);
+                }
+                return;
+            }
+            for (size_t i = start; i < Cells.size(); ++i) {
+                vector<Cell> next_path = path;
+                next_path.push_back(Cells[i]);
+                backtrack(i + 1, next_path);
+            }
+        };
+
+        backtrack(0, vector<Cell>{});
+        return res;
+    }
 };
 
 class Board {
     public:
         vector<Cell> Cells;
 	    vector<Sector> Sectors;
-        map<pair<int, int>, int> Indexes;
+        map<array<int, 2>, int> Indexes;
+		vector<vector<int>> WhiteIndex;
 
         bool isCorrect();
         void run();
@@ -71,25 +110,51 @@ class Board {
         Board copy() const;
         bool fill(atomic<bool>& canselFlag, const vector<Cell>& filledCells, bool checkSectors, int lvl);      
         bool add(int i);
-        bool canAdd(Cell cell);
-        bool canAddToSector(const Sector& sector, const Cell& cell) const;
-        int inSector(const Sector& sector) const;
-        bool nextToFilled(const Cell& cell) const;
+        bool canAdd(const Cell& cell);
         bool checkWhiteLines();
-        vector<Cell> white() const;
-        void checkNexts(vector<Cell>& white, vector<Cell> nexts);
-        vector<Cell> getNexts(vector<Cell>& white, const Cell& start);
-        bool fullSectors() const;
-        bool fullSector(const Sector& sector) const;
+		void checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vector<vector<int>>& m);
+		vector<Cell> getNexts(const vector<vector<int>>& m, vector<Cell> & white, const Cell& start);
+		bool fullSectors() const;
         int checkHorizontalWhite() const;
         vector<vector<Cell>> getRows(int rowIndx) const;
         int getSectionIndx(int row, int col) const;
         int checkVerticalWhite() const;
-        vector<Cell> getCol(int colIndx) const;
+		vector<Cell> getCol(int colIndx) const;
         vector<Cell> getPossibleSectors();
         vector<Cell> getPossibleCells(int row, int col);
         string display() const;
-        bool valid() const;
+        bool valid();
+
+		Board(const Board& other) :
+        Cells(other.Cells),
+        Sectors(other.Sectors.size()),
+        Indexes(other.Indexes),
+        WhiteIndex(other.WhiteIndex)
+    {
+  
+        for (size_t i = 0; i < other.Sectors.size(); ++i) {
+            Sectors[i].Cells = other.Sectors[i].Cells;
+            Sectors[i].Number = other.Sectors[i].Number;
+        }
+    }
+    Board(vector<Cell> cells, vector<Sector> sectors, map<array<int, 2> ,int> indexes = {}, vector<vector<int>> whiteIndx = {})
+    : Cells(std::move(cells)), Sectors(std::move(sectors)),
+      Indexes(std::move(indexes)), WhiteIndex(std::move(whiteIndx)) {}
+
+    Board& operator=(const Board& other) {
+        if (this == &other) {
+            return *this;
+        }
+        Cells = other.Cells;
+        Sectors.resize(other.Sectors.size());
+         for (size_t i = 0; i < other.Sectors.size(); ++i) {
+            Sectors[i].Cells = other.Sectors[i].Cells;
+            Sectors[i].Number = other.Sectors[i].Number;
+        }
+        Indexes = other.Indexes;
+        WhiteIndex = other.WhiteIndex;
+        return *this;
+    }
 
         void cleanFilled() {
             for (size_t i = 0; i < Cells.size(); ++i) {
@@ -98,7 +163,7 @@ class Board {
         }
 
         int cellIndex(int i, int j) const {
-            pair<int, int> key = {i, j};
+            array<int, 2> key = {i, j};
             auto it = Indexes.find(key);
             if (it != Indexes.end()) {
                 return it->second; 
@@ -108,7 +173,7 @@ class Board {
 
         Cell* findCell(int i, int j) {
             int idx = cellIndex(i, j);
-            if (idx < 0) {
+            if (idx < 0 || idx >= static_cast<int>(Cells.size())) {
                 return nullptr;
             }
             return &Cells[idx];
@@ -116,12 +181,70 @@ class Board {
 
         const Cell* findCell(int i, int j) const { 
             int idx = cellIndex(i, j);
-            if (idx < 0) {
+            if (idx < 0 || idx >= static_cast<int>(Cells.size())) {
                 return nullptr;
             }
             return &Cells[idx];
         }
-    
+	
+		int inSector(const Sector& sector) const {
+			if (sector.Number == nullptr) {
+				return 0;
+			}
+			int cnt = 0;
+			for (size_t i = 0; i < Cells.size(); ++i) {
+				if (!Cells[i].filled) {
+					continue;
+				}
+				if (sector.Contains(Cells[i])) {
+					cnt++;
+				}
+			}
+			return cnt;
+		}
+	
+		bool fullSector(const Sector& sector) const {
+			if (sector.Number == nullptr) {
+				return true; 
+			}
+			return inSector(sector) == *sector.Number;
+		}
+	
+		bool canAddToSector(const Sector& sector, const Cell& cell) const {
+			if (!sector.Contains(cell)) {
+				return true;
+			}
+			if (sector.Number == nullptr) {
+				 return true; 
+			}
+			return inSector(sector) < *sector.Number;
+		}
+
+		bool nextToFilled(const Cell& cell) const {
+			for (size_t i = 0; i < Cells.size(); ++i) {
+				if (!Cells[i].filled) {
+					continue;
+				}
+				if (Cells[i].Equal(cell)) {
+					continue; 
+				}
+				if (Cells[i].NextTo(cell)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		vector<Cell> white() const {
+			vector<Cell> white_cells;
+			white_cells.reserve(Cells.size());
+			for (size_t i = 0; i < Cells.size(); ++i) {
+				if (!Cells[i].filled) {
+					white_cells.push_back(Cells[i]);
+				}
+			}
+			return white_cells;
+		}
     };
 
 shared_ptr<int> ptrTo(int i) {
@@ -141,33 +264,6 @@ bool validComb(const vector<Cell>& comb) {
     }
     return true;
 }
-
-vector<vector<Cell>> Sector::Combs() const {
-    vector<vector<Cell>> res;
-	if (Number == nullptr || *Number == 0) {
-		return res;
-	}
-
-    int target_size = *Number;
-	function<void(int, vector<Cell>)> backtrack;
-	backtrack = [&](int start, vector<Cell> path) {
-		if (path.size() == static_cast<size_t>(target_size)) {
-            vector<Cell> comb = path;
-			if (validComb(comb)) {
-				res.push_back(comb); 
-			}
-			return;
-		}
-		for (size_t i = start; i < Cells.size(); ++i) {
-            vector<Cell> next_path = path;
-            next_path.push_back(Cells[i]);
-			backtrack(i + 1, next_path);
-		}
-	};
-
-	backtrack(0, {});
-	return res;
-}
  
 struct Shape {
 	int MinI = 0, MinJ = 0;
@@ -186,11 +282,11 @@ Shape getShape(const vector<Cell>& cells) {
         return res;
     }
 
-	for (const auto& cell : cells) {
-		res.MinI = min(cell.i, res.MinI);
-		res.MinJ = min(cell.j, res.MinJ);
-		res.MaxI = max(cell.i, res.MaxI);
-		res.MaxJ = max(cell.j, res.MaxJ);
+	for (size_t i = 0; i < cells.size(); ++i) {
+		res.MinI = min(cells[i].i, res.MinI);
+		res.MinJ = min(cells[i].j, res.MinJ);
+		res.MaxI = max(cells[i].i, res.MaxI);
+		res.MaxJ = max(cells[i].j, res.MaxJ);
 	}
 	return res;
 }
@@ -276,6 +372,18 @@ void Board::setNumbers() {
 	for (size_t i = 0; i < Cells.size(); ++i) {
 		Indexes[{Cells[i].i, Cells[i].j}] = static_cast<int>(i);
 	}
+
+	Shape shape = getShape(Cells);
+        int num_rows = (shape.MaxI >= shape.MinI) ? (shape.MaxI + 1) : 0;
+        WhiteIndex.assign(num_rows, vector<int>()); 
+        if (num_rows > 0) {
+            int num_cols = (shape.MaxJ >= shape.MinJ) ? (shape.MaxJ + 1) : 0;
+            if (num_cols > 0) {
+                for (int i = 0; i < num_rows; ++i) {
+                    WhiteIndex[i].assign(num_cols, -1);
+                }
+            }
+        }
 }
 
 static thread Combs(atomic<bool>& cancel, const vector<Sector>& sectors, const vector<Cell> cells, function<void(const vector<Cell>)> resultHandler) {
@@ -369,10 +477,13 @@ static thread Combs(atomic<bool>& cancel, const vector<Sector>& sectors, const v
     return generator_thread;
 }
 
-bool Board::valid() const {
+bool Board::valid() {
 	if (!fullSectors()) {
 		return false;
 	}
+	if (!checkWhiteLines()) {
+	   return false;
+    }
 	if (checkHorizontalWhite() > -1) {
 		return false;
 	}
@@ -398,7 +509,7 @@ void Board::run() {
         Board board_copy = copy();
         thread worker([this, board_copy, comb, &solutionFound, &resultMutex, &resultCV, workers ]() mutable {
             vector<Cell> CombVec = {comb};
-           
+			try {
                 bool validSolution = board_copy.fill(solutionFound, CombVec, true, 0);
                 if (solutionFound.load()) {
                     return;
@@ -414,7 +525,11 @@ void Board::run() {
                         }
                     }
                 }
-           
+			} catch (const exception& e) {
+				cerr << "Exception in fill worker thread: " << e.what() << endl;
+			} catch (...) {
+				cerr << "Unknown exception in fill worker thread." << endl;
+			}
         });
         worker.detach();
     };
@@ -426,25 +541,17 @@ void Board::run() {
     if (generator.joinable()) {
         generator.join();
     }
+	cout << "Total combinations processed: " << workers << endl;
 }
 
 Board Board::copy() const {
-    Board board_copy;
-    board_copy.Cells = Cells;
-    board_copy.Sectors.reserve(Sectors.size());
-    for (const auto& sector : Sectors) {
-        Sector sector_copy;
-        sector_copy.Cells = sector.Cells;
-        sector_copy.Number = sector.Number;
-        board_copy.Sectors.push_back(sector_copy);
-    }
-    board_copy.Indexes = Indexes;
-	return board_copy;
+    return Board(*this);
 }
 
 bool Board::add(int cell_index) {
-    if (cell_index < 0 || static_cast<size_t>(cell_index) >= Cells.size()) return false;
-
+    if (cell_index < 0 || static_cast<size_t>(cell_index) >= Cells.size()) {
+		return false;
+	}
 	if (!canAdd(Cells[cell_index])) {
 		return false;
 	}
@@ -452,9 +559,9 @@ bool Board::add(int cell_index) {
 	return true;
 }
 
-bool Board::canAdd(Cell cell) { 
-	for (const auto& sector : Sectors) {
-		if (!canAddToSector(sector, cell)) {
+bool Board::canAdd(const Cell& cell) { 
+	for (size_t i = 0; i < Sectors.size(); ++i) {
+		if (!canAddToSector(Sectors[i], cell)) {
 			return false;
 		}
 	}
@@ -469,119 +576,97 @@ bool Board::canAdd(Cell cell) {
 		c_ptr->filled = false;
 		return ok;
 	}
-    
-    if (c_ptr == nullptr || c_ptr->filled) {
-        return true; 
-    }
-
-	return true; 
-}
-
-bool Board::canAddToSector(const Sector& sector, const Cell& cell) const {
-    bool cell_in_sector = false;
-    if (sector.Number != nullptr) { 
-        for(const auto& sector_cell : sector.Cells) {
-            if (sector_cell.Equal(cell)) {
-                cell_in_sector = true;
-                break;
-            }
-        }
-    }
-
-	if (!cell_in_sector) {
-		return true; 
-	}
-	return inSector(sector) < *sector.Number;
-}
-
-int Board::inSector(const Sector& sector) const {
-	if (sector.Number == nullptr) {
-		return 0;
-	}
-	int cnt = 0;
-	for (const auto& cell : Cells) {
-		if (!cell.filled) {
-			continue;
-		}
-        for(const auto& sector_cell : sector.Cells) {
-            if (cell.Equal(sector_cell)) {
-                cnt++;
-                break; 
-            }
-        }
-	}
-	return cnt;
-}
-
-bool Board::nextToFilled(const Cell& cell) const {
-	for (const auto& board_cell : Cells) {
-		if (!board_cell.filled) {
-			continue;
-		}
-		if (board_cell.Equal(cell)) {
-			continue;
-		}
-		if (board_cell.NextTo(cell)) {
-			return true;
-		}
-	}
-	return false;
+	return true;
 }
 
 bool Board::checkWhiteLines() {
-	vector<Cell> white_cells = white();
-    if (white_cells.empty()) {
-        return true; 
+	vector<Cell> white_cells;
+        white_cells.reserve(Cells.size());
+        int indx = -1;
+        for (size_t i = 0; i < Cells.size(); ++i) {
+            if (!Cells[i].filled) {
+                white_cells.push_back(Cells[i]);
+                indx++;
+                 if (Cells[i].i >= 0 && Cells[i].i < static_cast<int>(WhiteIndex.size()) &&
+                    Cells[i].j >= 0 && Cells[i].j < static_cast<int>(WhiteIndex[Cells[i].i].size())) {
+                    WhiteIndex[Cells[i].i][Cells[i].j] = indx;
+                 }
+            } else {
+                 if (Cells[i].i >= 0 && Cells[i].i < static_cast<int>(WhiteIndex.size()) &&
+                    Cells[i].j >= 0 && Cells[i].j < static_cast<int>(WhiteIndex[Cells[i].i].size())) {
+                    WhiteIndex[Cells[i].i][Cells[i].j] = -1;
+                 }
+            }
+        }
+
+        if (white_cells.empty()) {
+            return true; 
+        }
+
+        white_cells[0].filled = true;
+        extern vector<Cell> getNexts(const vector<vector<int>>& m, vector<Cell>& white, const Cell& start);
+        extern void checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vector<vector<int>>& m);
+
+        this->checkNexts(white_cells, vector<Cell>{white_cells[0]}, WhiteIndex);
+
+        for (size_t i = 0; i < white_cells.size(); ++i) {
+            if (!white_cells[i].filled) {
+                return false;
+            }
+        }
+        return true;
     }
 
-	white_cells[0].filled = true;
-	checkNexts(white_cells, {white_cells[0]}); 
-
-	for (const auto& cell : white_cells) {
-		if (!cell.filled) {
-			return false; 
-		}
-	}
-	return true; 
-}
-
-vector<Cell> Board::white() const {
-	vector<Cell> white_cells;
-	for (const auto& cell : Cells) {
-		if (!cell.filled) {
-			white_cells.push_back(cell);
-		}
-	}
-	return white_cells;
-}
-
-void Board::checkNexts(vector<Cell>& white, vector<Cell> nexts) {
+void Board::checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vector<vector<int>>& m) {
+		if (nexts.empty()) { 
+        return;
+    }
 	vector<Cell> children;
-	for (const auto& next_cell : nexts) {
-       
-		vector<Cell> grandchildren = getNexts(white, next_cell);
-        children.insert(children.end(), grandchildren.begin(), grandchildren.end());
+    children.reserve(nexts.size() * 4);
+	for (size_t i = 0; i < nexts.size(); ++i) {
+		vector<Cell> grand_children = getNexts(m, white, nexts[i]);
+        children.insert(children.end(), grand_children.begin(), grand_children.end());
 	}
-	if (children.empty()) {
-		return;
-	}
-	checkNexts(white, children); 
+
+	checkNexts(white, children, m);
 }
 
-vector<Cell> Board::getNexts(vector<Cell>& white, const Cell& start) {
+vector<Cell> Board::getNexts(const vector<vector<int>>& m, vector<Cell> & white, const Cell& start) {
 	vector<Cell> nexts;
-	for (size_t i = 0; i < white.size(); ++i) {
-		if (white[i].Equal(start)) {
+	nexts.reserve(4); 
+	const std::array<array<int, 2>, 4> cords = {{
+		{start.i - 1, start.j},
+		{start.i + 1, start.j},
+		{start.i, start.j - 1},
+		{start.i, start.j + 1},
+	}};
+
+	for (size_t i = 0; i < cords.size(); ++i) {
+        int r = cords[i][0];
+        int c = cords[i][1];
+
+		if (r < 0 || r >= static_cast<int>(m.size())) {
 			continue;
 		}
-		if (!white[i].NextTo(start)) {
+		const vector<int>& arr = m[r];
+		if (c < 0 || c >= static_cast<int>(arr.size())) {
 			continue;
 		}
-		if (white[i].filled) {
+
+		int idx = arr[c];
+		if (idx == -1) { 
 			continue;
 		}
-		white[i].filled = true; 
-		nexts.push_back(white[i]);
+
+        if (idx < 0 || idx >= static_cast<int>(white.size())) {
+             continue;
+        }
+
+
+		if (!white[idx].filled) {
+			white[idx].filled = true; 
+			nexts.push_back(white[idx]); 
+		}
 	}
 	return nexts;
 }
@@ -595,12 +680,6 @@ bool Board::fullSectors() const {
     return true;
 }
 
-bool Board::fullSector(const Sector& sector) const {
-	if (sector.Number == nullptr) {
-		return true;
-	}
-	return inSector(sector) == *sector.Number;
-}
 
 vector<vector<Cell>> Board::getRows(int rowIndx) const {
 	vector<Cell> row;
@@ -634,7 +713,6 @@ int Board::getSectionIndx(int row, int col) const {
 	}
 	return -1; 
 }
-
 vector<Cell> Board::getCol(int colIndx) const {
 	vector<Cell> col;
 	for (const auto& cell : Cells) {
@@ -731,7 +809,7 @@ vector<Cell> Board::getPossibleSectors() {
 		if (fullSector(Sectors[i])) {
 			continue;
 		}
-		for (size_t j = 0; j < Sectors.size(); ++j) {
+		for (size_t j = 0; j < Sectors[i].Cells.size(); ++j) {
             const Cell& sectorCell = Sectors[i].Cells[j];
             if (!canAddToSector(Sectors[i], sectorCell)) {
                 continue;
@@ -1457,7 +1535,7 @@ int main() {
             cout << "Board structure is incorrect" << endl;
             return 1;
         }
-        this_thread::sleep_for(chrono::seconds(5));
+        this_thread::sleep_for(chrono::seconds(1));
         auto start = chrono::high_resolution_clock::now();
 
         boards[i].run();
