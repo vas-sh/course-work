@@ -108,7 +108,7 @@ class Board {
         void run();
         void setNumbers();
         Board copy() const;
-        bool fill(atomic<bool>& canselFlag, const vector<Cell>& filledCells, bool checkSectors, int lvl);      
+        bool fill(atomic<bool>& canselFlag, const vector<Cell>& filledCells, bool checkSectors);      
         bool add(int i);
         bool canAdd(const Cell& cell);
         bool checkWhiteLines();
@@ -510,7 +510,7 @@ void Board::run() {
         thread worker([this, board_copy, comb, &solutionFound, &resultMutex, &resultCV, workers ]() mutable {
             vector<Cell> CombVec = {comb};
 			try {
-                bool validSolution = board_copy.fill(solutionFound, CombVec, true, 0);
+                bool validSolution = board_copy.fill(solutionFound, CombVec, true);
                 if (solutionFound.load()) {
                     return;
                 }
@@ -518,8 +518,9 @@ void Board::run() {
                     if (board_copy.valid()) {
                         lock_guard<mutex> lock(resultMutex);
                         if (!solutionFound.load()) {
-                            cout << "Solution found by worker: " << workers << endl;
+							cout << "Result:";
                             cout << board_copy.display();
+							cout << "Solution found by worker: " << workers << endl;
                             solutionFound.store(true); 
                             resultCV.notify_all();
                         }
@@ -842,7 +843,7 @@ vector<Cell> Board::getPossibleCells(int row, int col) {
     return cells;
 }
 
-bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool checkSectors, int lvl) {
+bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool checkSectors) {
     if (cancelFlag.load()) return false;
     cleanFilled();
 
@@ -890,7 +891,7 @@ bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool
             return false;
         }
         children.back() = posibles[i];
-        if (fill(cancelFlag, children, checkSectors, lvl +1)) {
+        if (fill(cancelFlag, children, checkSectors)) {
             solutionFoundInBranch = true;
             break;
         }
@@ -1526,22 +1527,28 @@ Board testCase5 = {
 
 int main() {
     vector<Board> boards = {testCase1, testCase2, testCase3, testCase4, testCase5};
+	cout << "Explanation: Black cells are marked with an 'x' and white cells are marked with a space." << endl;
+	cout << "The speed of execution depends on the complexity of the playing board" << endl;
     for (size_t i = 0; i < boards.size(); i++) {
+		cout << "Press Enter to get started solving board №" << i + 1;
+		cin.get();
         boards[i].setNumbers();
-        cout << boards[i].display();
+		cout << "Initial board of the "<< i + 1 << " board";
+		cout << boards[i].display();
         if (boards[i].isCorrect()) {
             cout << "Board structure is correct" << endl;;
         } else {
             cout << "Board structure is incorrect" << endl;
-            return 1;
-        }
-        this_thread::sleep_for(chrono::seconds(1));
+			cout << "This board cannot be solved" << endl;
+			continue;
+		}
+		cout << "Solving..." << endl;;
         auto start = chrono::high_resolution_clock::now();
 
         boards[i].run();
 
         auto end = chrono::high_resolution_clock::now();
 		chrono::duration<double> duration = end - start;
-        cout << "finish in " << duration.count() / 60.0 << " min" << endl;
+        cout << "Finish solving in " << duration.count() / 60.0 << " minutes" << endl;
     }
 }
