@@ -1,13 +1,20 @@
-#include "cell.cc"
-#include "sector.cc" 
-#include "validator.cc"
+#include "cell.h"
+#include "sector.h" 
+#include "validator.h"
+#include "combination.h"
 #include <thread>
 #include <atomic>
 #include <functional>
 #include <iostream>
+#include <vector>
 using namespace std;
 
-static thread Combs(atomic<bool>& cancel, const vector<Sector>& sectors, const vector<Cell> cells, function<void(const vector<Cell>)> resultHandler) {
+std::thread Combs(
+    std::atomic<bool>& cancel,
+    const std::vector<Sector>& sectors,
+    const std::vector<Cell> cells,
+    std::function<void(const std::vector<Cell>)> resultHandler
+) {
     thread generator_thread([&cancel, sectors, resultHandler]() {
         try {
             vector<vector<vector<Cell>>> groups;

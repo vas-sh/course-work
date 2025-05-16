@@ -1,7 +1,8 @@
-#include "cell.cc"
-#include "sector.cc"
-#include "shape.cc"
-#include "combination.cc"
+#include "cell.h"
+#include "sector.h"
+#include "board.h"
+#include "shape.h"
+#include "combination.h"
 #include <vector>
 #include <map>
 #include <array>
@@ -13,75 +14,20 @@
 #include <condition_variable>
 using namespace std;
 
-
-class Board {
-    public:
-        vector<Cell> Cells;
-	    vector<Sector> Sectors;
-        map<array<int, 2>, int> Indexes;
-		vector<vector<int>> WhiteIndex;
-
-        bool isCorrect();
-        void run();
-        void setNumbers();
-        Board copy() const;
-        bool fill(atomic<bool>& canselFlag, const vector<Cell>& filledCells, bool checkSectors);      
-        bool add(int i);
-        bool canAdd(const Cell& cell);
-        bool checkWhiteLines();
-		void checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vector<vector<int>>& m);
-		vector<Cell> getNexts(const vector<vector<int>>& m, vector<Cell> & white, const Cell& start);
-		bool fullSectors() const;
-        int checkHorizontalWhite() const;
-        vector<vector<Cell>> getRows(int rowIndx) const;
-        int getSectionIndx(int row, int col) const;
-        int checkVerticalWhite() const;
-		vector<Cell> getCol(int colIndx) const;
-        vector<Cell> getPossibleSectors();
-        vector<Cell> getPossibleCells(int row, int col);
-        string display() const;
-        bool valid();
-        void cleanFilled();
-        int cellIndex(int i, int j) const;
-        Cell* findCell(int i, int j);
-        const Cell* findCell(int i, int j) const;
-        int inSector(const Sector& sector) const;
-        bool fullSector(const Sector& sector) const;
-        bool canAddToSector(const Sector& sector, const Cell& cell) const;
-        bool nextToFilled(const Cell& cell) const;
-        vector<Cell> white() const;
-
-		Board(const Board& other) :
-        Cells(other.Cells),
-        Sectors(other.Sectors.size()),
-        Indexes(other.Indexes),
-        WhiteIndex(other.WhiteIndex)
-    {
-  
-        for (size_t i = 0; i < other.Sectors.size(); ++i) {
-            Sectors[i].Cells = other.Sectors[i].Cells;
-            Sectors[i].Number = other.Sectors[i].Number;
-        }
-    }
-    Board(vector<Cell> cells, vector<Sector> sectors, map<array<int, 2> ,int> indexes = {}, vector<vector<int>> whiteIndx = {})
-    : Cells(std::move(cells)), Sectors(std::move(sectors)),
-      Indexes(std::move(indexes)), WhiteIndex(std::move(whiteIndx)) {}
-
-    Board& operator=(const Board& other) {
-        if (this == &other) {
-            return *this;
-        }
-        Cells = other.Cells;
-        Sectors.resize(other.Sectors.size());
-         for (size_t i = 0; i < other.Sectors.size(); ++i) {
-            Sectors[i].Cells = other.Sectors[i].Cells;
-            Sectors[i].Number = other.Sectors[i].Number;
-        }
-        Indexes = other.Indexes;
-        WhiteIndex = other.WhiteIndex;
+Board& Board::operator=(const Board& other) {
+    if (this == &other) {
         return *this;
     }
-};
+    Cells = other.Cells;
+    Sectors.resize(other.Sectors.size());
+     for (size_t i = 0; i < other.Sectors.size(); ++i) {
+        Sectors[i].Cells = other.Sectors[i].Cells;
+        Sectors[i].Number = other.Sectors[i].Number;
+    }
+    Indexes = other.Indexes;
+    WhiteIndex = other.WhiteIndex;
+    return *this;
+}
 
 void Board::run() {
     int workers = 0;
@@ -178,7 +124,7 @@ bool Board::isCorrect() {
 }
 
 string Board::display() const {
-    Shape shape = getShape(Cells);
+    Shape shape = shape.getShape(Cells);
     stringstream ss;
     for (int i = shape.MinI; i <= shape.MaxI; ++i) {
         ss << "\n";
@@ -217,7 +163,7 @@ void Board::setNumbers() {
         Indexes[{Cells[i].i, Cells[i].j}] = static_cast<int>(i);
     }
 
-    Shape shape = getShape(Cells);
+    Shape shape = shape.getShape(Cells);
         int num_rows = (shape.MaxI >= shape.MinI) ? (shape.MaxI + 1) : 0;
         WhiteIndex.assign(num_rows, vector<int>()); 
         if (num_rows > 0) {
@@ -414,7 +360,7 @@ vector<Cell> Board::getCol(int colIndx) const {
 
 int Board::checkHorizontalWhite() const {
     vector<Cell> whiteCells = white();
-    Shape shape = getShape(whiteCells);
+    Shape shape = shape.getShape(whiteCells);
 
     for (int i = shape.MaxI; i <= shape.MaxI; i++) {
         for (const auto& _ [[maybe_unused]] : getRows(i)) {
@@ -456,7 +402,7 @@ int Board::checkHorizontalWhite() const {
 
 int Board::checkVerticalWhite() const {
 	vector<Cell> whiteCells = white();
-	Shape shape = getShape(whiteCells);
+	Shape shape = shape.getShape(whiteCells);
 
 	for (int j = shape.MinJ; j <= shape.MaxJ; ++j) { 
 		vector<Cell> cols = getCol(j);

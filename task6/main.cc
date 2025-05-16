@@ -1,9 +1,10 @@
-#include "board.cc"
+#include "board.h"
 #include <chrono>
 #include <iostream>
 #include <thread>
 #include <condition_variable>
 #include <atomic>
+#include <vector>
 using namespace std;
 
 shared_ptr<int> ptrTo(int i) {

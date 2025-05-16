@@ -1,14 +1,10 @@
 #include <limits>
-#include "cell.cc"
+#include "cell.h"
+#include "shape.h"
 #include <vector>
 using namespace  std;
 
-struct Shape {
-	int MinI = 0, MinJ = 0;
-	int MaxI = 0, MaxJ = 0;
-};
-
-Shape getShape(const vector<Cell>& cells) {
+Shape Shape::getShape(const std::vector<Cell>& cells) {
 	Shape res;
     res.MinI = numeric_limits<int>::max();
     res.MinJ = numeric_limits<int>::max();

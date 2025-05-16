@@ -1,17 +1,16 @@
 #pragma once
 #include <memory>
 #include <string>
-using namespace std;
 
 struct Cell {
 	int i = 0, j = 0;  
-    shared_ptr<int> NumberDisplay = nullptr;
+    std::shared_ptr<int> NumberDisplay = nullptr;
     bool filled = false;
     
-    string Coords() const {
+    std::string Coords() const {
         char buf[32]; 
         snprintf(buf, sizeof(buf), "%d %d", i, j);
-        return string(buf);
+        return std::string(buf);
     }
 
     bool NextTo(const Cell& cell) const {
@@ -28,14 +27,14 @@ struct Cell {
 		return i == cell.i && j == cell.j;
 	}
 
-    string String() const {
+    std::string String() const {
 		if (filled) {
 			return "|x";
 		}
 		if (NumberDisplay != nullptr) {
             char buffer[16];
             snprintf(buffer, sizeof(buffer), "|%d", *NumberDisplay);
-            return string(buffer);
+            return std::string(buffer);
 		}
 		return "|_";
 	}  

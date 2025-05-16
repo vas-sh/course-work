@@ -1,8 +1,9 @@
-#include "cell.cc"
+#include "cell.h"
+#include "validator.h"
 #include <vector>
 
 
-bool validComb(const vector<Cell>& comb) {
+bool validComb(const std::vector<Cell>& comb) {
     if (comb.size() <= 1) {
         return true;
     }
