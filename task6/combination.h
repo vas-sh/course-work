@@ -4,6 +4,7 @@
 #include <thread>
 #include <atomic>
 #include <vector>
+#include <functional>
 
 
 std::thread Combs(

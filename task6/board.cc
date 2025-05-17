@@ -94,7 +94,7 @@ bool Board::isCorrect() {
         for (size_t j = 0; j < Sectors[i].Cells.size(); j++) {
             string coord = Sectors[i].Cells[j].Coords();
             if (!board_cell_index.count(coord)) {
-                cout << "invalid, unaccounted sector cell, Sector" << i << "Cell " << j << endl;
+                cout << "invalid, unaccounted sector cell, Sector " << i << "Cell " << j << endl;
                 return false;
             }
             size_t boardIndex = board_cell_index[coord];
