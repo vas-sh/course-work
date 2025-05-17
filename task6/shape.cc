@@ -15,7 +15,6 @@ Shape Shape::getShape(const std::vector<Cell>& cells) {
         res.MinI = 0; res.MinJ = 0; res.MaxI = 0; res.MaxJ = 0;
         return res;
     }
-
 	for (size_t i = 0; i < cells.size(); ++i) {
 		res.MinI = min(cells[i].i, res.MinI);
 		res.MinJ = min(cells[i].j, res.MinJ);

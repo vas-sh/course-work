@@ -14,6 +14,7 @@
 #include <condition_variable>
 using namespace std;
 
+// Copy assignment operator
 Board& Board::operator=(const Board& other) {
     if (this == &other) {
         return *this;
@@ -29,6 +30,7 @@ Board& Board::operator=(const Board& other) {
     return *this;
 }
 
+// Executes the solving process and handles output.
 void Board::run() {
     int workers = 0;
     atomic<bool> solutionFound{false};
@@ -149,7 +151,6 @@ void Board::setNumbers() {
         if (Sectors[i].Cells.empty()) {
             continue;
         }
-
         for (size_t j = 0; j < Cells.size(); ++j) {
             if (Cells[j].Equal(Sectors[i].Cells[0])) {
                 Cells[j].NumberDisplay = Sectors[i].Number;
@@ -157,12 +158,10 @@ void Board::setNumbers() {
             }
         }
     }
-
     Indexes.clear();
     for (size_t i = 0; i < Cells.size(); ++i) {
         Indexes[{Cells[i].i, Cells[i].j}] = static_cast<int>(i);
     }
-
     Shape shape = shape.getShape(Cells);
         int num_rows = (shape.MaxI >= shape.MinI) ? (shape.MaxI + 1) : 0;
         WhiteIndex.assign(num_rows, vector<int>()); 
@@ -200,7 +199,6 @@ bool Board::canAdd(const Cell& cell) {
 	if (nextToFilled(cell)) {
 		return false;
 	}
-
 	Cell* c_ptr = findCell(cell.i, cell.j);
 	if (c_ptr != nullptr && !c_ptr->filled) {
 		c_ptr->filled = true; 
@@ -230,15 +228,12 @@ bool Board::checkWhiteLines() {
                  }
             }
         }
-
         if (white_cells.empty()) {
             return true; 
         }
-
         white_cells[0].filled = true;
         extern vector<Cell> getNexts(const vector<vector<int>>& m, vector<Cell>& white, const Cell& start);
         extern void checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vector<vector<int>>& m);
-
         this->checkNexts(white_cells, vector<Cell>{white_cells[0]}, WhiteIndex);
 
         for (size_t i = 0; i < white_cells.size(); ++i) {
@@ -259,7 +254,6 @@ void Board::checkNexts(vector<Cell>& white, const vector<Cell>& nexts, const vec
 		vector<Cell> grand_children = getNexts(m, white, nexts[i]);
         children.insert(children.end(), grand_children.begin(), grand_children.end());
 	}
-
 	checkNexts(white, children, m);
 }
 
@@ -272,11 +266,9 @@ vector<Cell> Board::getNexts(const vector<vector<int>>& m, vector<Cell> & white,
 		{start.i, start.j - 1},
 		{start.i, start.j + 1},
 	}};
-
 	for (size_t i = 0; i < cords.size(); ++i) {
         int r = cords[i][0];
         int c = cords[i][1];
-
 		if (r < 0 || r >= static_cast<int>(m.size())) {
 			continue;
 		}
@@ -284,17 +276,13 @@ vector<Cell> Board::getNexts(const vector<vector<int>>& m, vector<Cell> & white,
 		if (c < 0 || c >= static_cast<int>(arr.size())) {
 			continue;
 		}
-
 		int idx = arr[c];
 		if (idx == -1) { 
 			continue;
 		}
-
         if (idx < 0 || idx >= static_cast<int>(white.size())) {
              continue;
         }
-
-
 		if (!white[idx].filled) {
 			white[idx].filled = true; 
 			nexts.push_back(white[idx]); 
@@ -312,7 +300,6 @@ bool Board::fullSectors() const {
     return true;
 }
 
-
 vector<vector<Cell>> Board::getRows(int rowIndx) const {
 	vector<Cell> row;
 	for (const auto& cell : Cells) {
@@ -323,7 +310,6 @@ vector<vector<Cell>> Board::getRows(int rowIndx) const {
 	sort(row.begin(), row.end(), [](const Cell& a, const Cell& b) {
 		return a.j < b.j;
 	});
-
 	vector<vector<Cell>> rows;
 	for (size_t i = 0; i < row.size(); ++i) {
 		if (i == 0 || row[i].j - 1 != row[i - 1].j) {
@@ -345,6 +331,7 @@ int Board::getSectionIndx(int row, int col) const {
 	}
 	return -1; 
 }
+
 vector<Cell> Board::getCol(int colIndx) const {
 	vector<Cell> col;
 	for (const auto& cell : Cells) {
@@ -358,6 +345,7 @@ vector<Cell> Board::getCol(int colIndx) const {
 	return col;
 }
 
+// checkHorizontalWhite checks for 2x2 white squares crossing sector boundaries horizontally
 int Board::checkHorizontalWhite() const {
     vector<Cell> whiteCells = white();
     Shape shape = shape.getShape(whiteCells);
@@ -369,8 +357,7 @@ int Board::checkHorizontalWhite() const {
                 if (cell.i == i) {
                     currentRow.push_back(cell);
                 }
-            }
-        
+            } 
             sort(currentRow.begin(), currentRow.end(), [](const Cell& a, const Cell& b) {
                 return a.j < b.j;
             });
@@ -385,7 +372,6 @@ int Board::checkHorizontalWhite() const {
                     whiteCross = 0;
                     continue;
                 }
-
                 int sectionIdx = getSectionIndx(cell.i, cell.j);
                 int preSectionIdx = (preCell != nullptr) ? getSectionIndx(preCell->i, preCell->j) : -1;
                 if (preCell != nullptr && preSectionIdx > -1 && sectionIdx != preSectionIdx) {
@@ -400,6 +386,7 @@ int Board::checkHorizontalWhite() const {
     return -1;
 }
 
+// checkVerticalWhite checks for 2x2 white squares crossing sector boundaries vertically 
 int Board::checkVerticalWhite() const {
 	vector<Cell> whiteCells = white();
 	Shape shape = shape.getShape(whiteCells);
@@ -413,13 +400,11 @@ int Board::checkVerticalWhite() const {
 				whiteCross = 0;
 				continue;
 			}
-
 			const Cell* preCell = findCell(cell.i - 1, cell.j);
 			if (preCell != nullptr && preCell->filled) {
                 whiteCross = 0;
 				continue;
 			}
-
 			int sectionIdx = getSectionIndx(cell.i, cell.j);
 			int preSectionIdx = (preCell != nullptr) ? getSectionIndx(preCell->i, preCell->j) : -1;
 
@@ -473,9 +458,11 @@ vector<Cell> Board::getPossibleCells(int row, int col) {
     return cells;
 }
 
+// fill function is recursive backtracking solver
+// Need to pass the cancel flag for cooperative cancellation.
 bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool checkSectors) {
     if (cancelFlag.load()) return false;
-    cleanFilled();
+    cleanFilled(); // Reset the board state
 
     for (const auto& cellToFill : filledCells) {
         int idx = cellIndex(cellToFill.i, cellToFill.j);
@@ -483,7 +470,6 @@ bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool
             cerr << "error: cell to fill not found on board"<<endl;
             return false;
         }
-
         if (!add(idx)) {
             return false;
         }
@@ -507,7 +493,6 @@ bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool
                 return true;
             }
         }
-    
         if (posibles.empty() && (problRow > -1 || checkVerticalWhite() > -1)) {
             return false;
         }
@@ -529,6 +514,7 @@ bool Board::fill(atomic<bool>& cancelFlag, const vector<Cell>& filledCells, bool
    return solutionFoundInBranch;
 }
 
+// Checks if the current board state is valid according to all rules.
 bool Board::valid() {
 	if (!fullSectors()) {
 		return false;

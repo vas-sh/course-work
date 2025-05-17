@@ -3,8 +3,6 @@
 #include <vector>
 #include <memory>
 
-class Sector;
-
 struct Sector {
     std::vector<Cell> Cells;
     std::shared_ptr<int> Number = nullptr;

@@ -4,8 +4,6 @@
 #include "validator.h"
 #include <functional>
 
-
-
 bool Sector::Contains(const Cell& cell) const {
     if (Number == nullptr) {
         return false;
@@ -23,7 +21,6 @@ std::vector<std::vector<Cell>> Sector::Combs() const {
     if (Number == nullptr || *Number == 0) {
         return res;
     }
-
     std::function<void(int, std::vector<Cell>)> backtrack;
     backtrack = [&](int start, std::vector<Cell> path) {
         if (path.size() == static_cast<size_t>(*Number)) {

@@ -46,13 +46,14 @@ class Board {
         std::vector<Cell> white() const;
         Board& operator=(const Board& other);
 
+        // Copy constructor (need for board.copy())
 		Board(const Board& other) :
         Cells(other.Cells),
         Sectors(other.Sectors.size()),
         Indexes(other.Indexes),
         WhiteIndex(other.WhiteIndex)
     {
-  
+        // Deep copy Sectors (Cells vector and shared_ptr Number)
         for (size_t i = 0; i < other.Sectors.size(); ++i) {
             Sectors[i].Cells = other.Sectors[i].Cells;
             Sectors[i].Number = other.Sectors[i].Number;
